@@ -6,18 +6,20 @@
  const MODE={all:'顺序练习',random:'随机练习',wrong:'我的错题',starred:'收藏题目'};
  const banks=(window.GUIDE_BANKS||[window.GUIDE_BANK]).map(E.validateBank);
  let all=[],lookup=new Map(),queue=[],current='',selection=[],gridPage=0,toastTimer;
- let state={records:{},wrong:[],starred:[],current:'',mode:'all',exam:'all',type:'all',bank:'all'};
+ let state={records:{},drafts:{},wrong:[],starred:[],current:'',mode:'all',exam:'all',type:'all',bank:'all'};
  let storageProblem=false;
  try{const raw=JSON.parse(localStorage.getItem(KEY));if(raw&&raw.records&&typeof raw.records==='object'&&!Array.isArray(raw.records)&&Array.isArray(raw.wrong)&&Array.isArray(raw.starred))state={...state,...raw};}catch{storageProblem=true;}
  if(!MODE[state.mode])state.mode='all';if(!['all','科目三','科目四'].includes(state.exam))state.exam='all';if(!['all','judge','single','multiple'].includes(state.type))state.type='all';
+ if(!state.drafts||typeof state.drafts!=='object'||Array.isArray(state.drafts))state.drafts={};
  function toast(message){$('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,3200);}
  function save(){try{localStorage.setItem(KEY,JSON.stringify(state));$('save-indicator').textContent=storageProblem?'部分历史数据未能读取':'进度已保存到当前浏览器';}catch{$('save-indicator').textContent='保存失败，请勿清除或关闭页面';toast('浏览器存储空间不足，当前进度暂时无法保存。');}}
  function getRecord(q){const r=state.records[q.id];return r&&Array.isArray(r.selected)&&r.selected.every(k=>q.options.some(o=>o.key===k))&&typeof r.correct==='boolean'?r:null;}
+ function readDraft(id){const q=lookup.get(id),draft=state.drafts[id];return q&&q.type==='multiple'&&!getRecord(q)&&Array.isArray(draft)?[...new Set(draft.filter(k=>q.options.some(o=>o.key===k)))]:[];}
  function rebuild(){all=E.mergeBanks(banks);lookup=new Map(all.map(q=>[q.id,q]));state.wrong=state.wrong.filter(id=>lookup.has(id));state.starred=state.starred.filter(id=>lookup.has(id));if(state.bank!=='all'&&!banks.some(b=>b.id===state.bank))state.bank='all';}
  function buildQueue(keepCurrent=false){
   queue=all.filter(q=>(state.exam==='all'||q.exam===state.exam)&&(state.type==='all'||q.type===state.type)&&(state.bank==='all'||q.bankId===state.bank)&&(state.mode!=='wrong'||state.wrong.includes(q.id))&&(state.mode!=='starred'||state.starred.includes(q.id))).map(q=>q.id);
   if(state.mode==='random')for(let i=queue.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[queue[i],queue[j]]=[queue[j],queue[i]];}
-  current=keepCurrent&&queue.includes(state.current)?state.current:queue[0]||'';state.current=current;selection=[];gridPage=Math.floor(Math.max(0,queue.indexOf(current))/40);render();save();
+  current=keepCurrent&&queue.includes(state.current)?state.current:queue[0]||'';state.current=current;selection=readDraft(current);gridPage=Math.floor(Math.max(0,queue.indexOf(current))/40);render();save();
  }
  function stats(){const records=all.map(getRecord).filter(Boolean),right=records.filter(r=>r.correct).length;$('stat-total').textContent=all.length;$('stat-done').textContent=records.length;$('stat-rate').textContent=records.length?Math.round(right/records.length*100)+'%':'—';$('stat-wrong').textContent=state.wrong.length;$('wrong-badge').textContent=state.wrong.length;$('star-badge').textContent=state.starred.length;}
  function updateControls(){document.querySelectorAll('[data-mode]').forEach(button=>{button.classList.toggle('active',button.dataset.mode===state.mode);button.setAttribute('aria-current',button.dataset.mode===state.mode?'page':'false');});document.querySelectorAll('[data-exam]').forEach(button=>{const active=button.dataset.exam===state.exam;button.classList.toggle('selected',active);button.setAttribute('aria-pressed',String(active));});$('page-name').textContent=MODE[state.mode];$('type-filter').value=state.type;$('bank-filter').value=state.bank;}
@@ -49,9 +51,9 @@
   $('options').replaceChildren();for(const option of q.options){const button=create('button','option');button.type='button';button.setAttribute('aria-label',option.key+'，'+option.text);button.setAttribute('aria-pressed',String((r?r.selected:selection).includes(option.key)));button.append(create('span','option-letter',option.key),create('span','option-text',option.text));if((r?r.selected:selection).includes(option.key))button.classList.add('selected');if(r){button.disabled=true;if(q.answer.includes(option.key))button.classList.add('correct');else if(r.selected.includes(option.key))button.classList.add('incorrect');}button.addEventListener('click',()=>choose(option.key));$('options').append(button);}
   $('submit-multiple').hidden=q.type!=='multiple'||!!r;$('submit-multiple').disabled=!selection.length;$('retry-button').hidden=!r;$('inline-result').hidden=!r;if(r)fillResult($('inline-result'),q,r);else $('inline-result').replaceChildren();$('prev-button').disabled=position<=0;$('next-button').disabled=position>=queue.length-1;$('source-line').textContent='题目来源 · '+q.source;
  }
- function choose(key){const q=lookup.get(current);if(!q||getRecord(q))return;if(q.type==='multiple'){selection=selection.includes(key)?selection.filter(k=>k!==key):[...selection,key];render();$('options').children[q.options.findIndex(o=>o.key===key)]?.focus({preventScroll:true});}else{selection=[key];submit();}}
- function submit(){const q=lookup.get(current);if(!q||!selection.length||getRecord(q))return;const record={selected:selection.slice(),correct:E.exactMatch(selection,q.answer),at:Date.now()};state.records[q.id]=record;if(record.correct)state.wrong=state.wrong.filter(id=>id!==q.id);else if(!state.wrong.includes(q.id))state.wrong.push(q.id);save();render();const heading=$('inline-result').querySelector('h2');heading?.focus({preventScroll:true});heading?.scrollIntoView({block:'nearest',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});}
- function go(id){if(!lookup.has(id))return;current=id;state.current=id;selection=[];gridPage=Math.floor(queue.indexOf(id)/40);render();save();}
+ function choose(key){const q=lookup.get(current);if(!q||getRecord(q))return;if(q.type==='multiple'){selection=selection.includes(key)?selection.filter(k=>k!==key):[...selection,key];state.drafts[q.id]=selection.slice();render();save();$('options').children[q.options.findIndex(o=>o.key===key)]?.focus({preventScroll:true});}else{selection=[key];submit();}}
+ function submit(){const q=lookup.get(current);if(!q||!selection.length||getRecord(q))return;const record={selected:selection.slice(),correct:E.exactMatch(selection,q.answer),at:Date.now()};state.records[q.id]=record;delete state.drafts[q.id];if(record.correct)state.wrong=state.wrong.filter(id=>id!==q.id);else if(!state.wrong.includes(q.id))state.wrong.push(q.id);save();render();const heading=$('inline-result').querySelector('h2');heading?.focus({preventScroll:true});heading?.scrollIntoView({block:'nearest',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});}
+ function go(id){if(!lookup.has(id))return;current=id;state.current=id;selection=readDraft(id);gridPage=Math.floor(queue.indexOf(id)/40);render();save();}
  function next(){const index=queue.indexOf(current);if(index<queue.length-1)go(queue[index+1]);else toast('本组已到最后一题，可以查看答题卡或切换题型继续练习。');}
  function refreshBankOptions(){$('bank-filter').replaceChildren(new Option('全部题库','all'));for(const bank of banks)$('bank-filter').append(new Option(bank.title,bank.id));}
  function renderBanks(){$('bank-list').replaceChildren();for(const bank of banks){const row=create('div','bank-row'),text=create('div');text.append(create('strong','',bank.title),create('p','',`${bank.questions.length} 道题 · 判断 ${bank.questions.filter(q=>q.type==='judge').length} / 单选 ${bank.questions.filter(q=>q.type==='single').length} / 多选 ${bank.questions.filter(q=>q.type==='multiple').length}`));row.append(text,create('span','','共享题库'));$('bank-list').append(row);}}
@@ -60,10 +62,44 @@
  document.querySelectorAll('[data-exam]').forEach(button=>button.addEventListener('click',()=>{state.exam=button.dataset.exam;buildQueue();}));
  $('type-filter').addEventListener('change',()=>{state.type=$('type-filter').value;buildQueue();});$('bank-filter').addEventListener('change',()=>{state.bank=$('bank-filter').value;buildQueue();});
  $('prev-button').addEventListener('click',()=>{const i=queue.indexOf(current);if(i>0)go(queue[i-1]);});$('next-button').addEventListener('click',next);$('submit-multiple').addEventListener('click',submit);
- $('retry-button').addEventListener('click',()=>{delete state.records[current];selection=[];render();save();});
+ $('retry-button').addEventListener('click',()=>{delete state.records[current];delete state.drafts[current];selection=[];render();save();});
  $('star-button').addEventListener('click',()=>{if(!current)return;state.starred=state.starred.includes(current)?state.starred.filter(id=>id!==current):[...state.starred,current];render();save();});
  $('grid-prev').addEventListener('click',()=>{gridPage--;renderGrid();});$('grid-next').addEventListener('click',()=>{gridPage++;renderGrid();});
  $('back-all').addEventListener('click',()=>{state.mode='all';state.exam='all';state.type='all';state.bank='all';buildQueue();});
  $('manage-button').addEventListener('click',manage);$('bank-info-top').addEventListener('click',manage);$('close-manage').addEventListener('click',()=>$('manage-dialog').close());
+ const swipeCard=document.querySelector('.question-card');
+ let swipe=null,suppressClickUntil=0;
+ swipeCard.addEventListener('touchstart',event=>{
+  swipe=null;
+  if(event.touches.length!==1||!current||$('manage-dialog').open||window.getSelection?.()?.toString())return;
+  if(event.target.closest('a,input,select,textarea,summary,details,button:not(.option)'))return;
+  const touch=event.touches[0];
+  // Leave screen-edge gestures to Safari/Chrome's back and forward navigation.
+  if(touch.clientX<24||touch.clientX>window.innerWidth-24)return;
+  swipe={x:touch.clientX,y:touch.clientY,id:touch.identifier,time:Date.now(),question:current,axis:null};
+ },{passive:true});
+ swipeCard.addEventListener('touchmove',event=>{
+  if(!swipe)return;
+  if(event.touches.length!==1){swipe=null;return;}
+  const touch=event.touches[0];if(touch.identifier!==swipe.id){swipe=null;return;}
+  const dx=Math.abs(touch.clientX-swipe.x),dy=Math.abs(touch.clientY-swipe.y);
+  if(!swipe.axis&&Math.max(dx,dy)>12)swipe.axis=dx>dy*1.6?'x':'y';
+  if(swipe.axis==='x'&&event.cancelable)event.preventDefault();
+ },{passive:false});
+ swipeCard.addEventListener('touchend',event=>{
+  const start=swipe;swipe=null;if(!start||event.touches.length||start.question!==current||Date.now()-start.time>1000)return;
+  const touch=[...event.changedTouches].find(t=>t.identifier===start.id);if(!touch)return;
+  const dx=touch.clientX-start.x,dy=touch.clientY-start.y;
+  if(start.axis==='y'||Math.abs(dx)<64||Math.abs(dx)<Math.abs(dy)*1.6||Math.abs(dy)>85||window.getSelection?.()?.toString())return;
+  // Consume the gesture even at an endpoint so it cannot accidentally select an answer.
+  suppressClickUntil=Date.now()+400;
+  if(event.cancelable)event.preventDefault();
+  const index=queue.indexOf(current),target=index+(dx<0?1:-1);
+  if(target<0){toast('已经是本组第一题。');return;}
+  if(target>=queue.length){toast('已经是本组最后一题。');return;}
+  go(queue[target]);$('question-area').scrollIntoView({block:'start',behavior:'instant'});
+ },{passive:false});
+ swipeCard.addEventListener('touchcancel',()=>{swipe=null;},{passive:true});
+ swipeCard.addEventListener('click',event=>{if(Date.now()<suppressClickUntil){event.preventDefault();event.stopImmediatePropagation();}},{capture:true});
  rebuild();refreshBankOptions();buildQueue(true);if(storageProblem)toast('部分本机历史数据未能读取，现有文件未被删除。');
 })();
