@@ -38,6 +38,12 @@
     return validateBank({title,questions});
   }
   function mergeBanks(banks){const seen=new Set(),ids=new Set(),questions=[];for(const bank of banks)for(const q of bank.questions){const key=fingerprint(q);if(seen.has(key))continue;seen.add(key);let id=q.id;if(ids.has(id))id=bank.id+'-'+id;if(ids.has(id))id+='-'+hash(key);ids.add(id);questions.push({...q,id,bankId:bank.id});}return questions;}
-  const api={clean,fingerprint,exactMatch,hash,validateBank,parseText,mergeBanks};
+  function shuffled(items,random=Math.random){const result=items.slice();for(let i=result.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[result[i],result[j]]=[result[j],result[i]];}return result;}
+  function optionLayout(q,order){
+    const keys=q.options.map(o=>o.key);
+    const valid=Array.isArray(order)&&order.length===keys.length&&new Set(order).size===keys.length&&order.every(k=>keys.includes(k));
+    return (valid?order:keys).map((key,i)=>({...q.options.find(o=>o.key===key),label:String.fromCharCode(65+i)}));
+  }
+  const api={clean,fingerprint,exactMatch,hash,validateBank,parseText,mergeBanks,shuffled,optionLayout};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GuideEngine=api;
 })(globalThis);
