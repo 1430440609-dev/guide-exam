@@ -15,7 +15,7 @@
       if(raw.type==='judge' && raw.options.length!==2)throw new Error(`${name}的判断题必须有两个选项。`);
       const id=typeof raw.id==='string'&&raw.id?raw.id:'q-'+hash(fingerprint(raw));
       if(ids.has(id))throw new Error(`${name}的编号重复。`);ids.add(id);
-      return {id,number:Number(raw.number)||i+1,type:raw.type,exam:raw.exam==='科目四'?'科目四':'科目三',stem:raw.stem.trim(),options:raw.options.map(o=>({key:o.key,text:o.text.trim()})),answer:raw.answer.slice(),explanation:typeof raw.explanation==='string'?raw.explanation:'原题库未提供解析。',notes:typeof raw.notes==='string'?raw.notes:'',topic:typeof raw.topic==='string'?raw.topic:'',source:typeof raw.source==='string'?raw.source:String(input.title||'导入题库'),answerNote:typeof raw.answerNote==='string'?raw.answerNote:''};
+      return {id,number:Number(raw.number)||i+1,type:raw.type,exam:['科目一','科目二','科目三','科目四'].includes(raw.exam)?raw.exam:'科目三',stem:raw.stem.trim(),options:raw.options.map(o=>({key:o.key,text:o.text.trim()})),answer:raw.answer.slice(),explanation:typeof raw.explanation==='string'?raw.explanation:'原题库未提供解析。',notes:typeof raw.notes==='string'?raw.notes:'',topic:typeof raw.topic==='string'?raw.topic:'',source:typeof raw.source==='string'?raw.source:String(input.title||'导入题库'),answerNote:typeof raw.answerNote==='string'?raw.answerNote:''};
     });
     return {schemaVersion:1,id:String(input.id||'bank-'+hash(questions.map(fingerprint).join('\n'))),title:typeof input.title==='string'&&input.title.trim()?input.title.trim():'新导入题库',source:String(input.source||''),questions};
   }
@@ -33,7 +33,7 @@
       const answer=type==='judge'?(/^(对|正确)/.test(rawAnswer)?['A']:/^(错|错误)/.test(rawAnswer)?['B']:[]):[...new Set(rawAnswer.match(/[A-H]/g)??[])];
       const chunks=(body.split('【解析】')[1]?.split('【考查点】')[0]?.trim()??'').split(/\n\s*\n/).map(clean).filter(Boolean);
       const topic=clean(body.match(/【考查点】([\s\S]*?)$/)?.[1]??'');
-      return {id:'q-'+hash(title+'|'+m[1]+'|'+firstPart),number:Number(m[1]),type,exam:topic.replace(/\s/g,'').includes('科目四')?'科目四':'科目三',stem:clean(firstPart.slice(0,marks[0]?.index??firstPart.length)),options:type==='judge'?[{key:'A',text:'对'},{key:'B',text:'错'}]:marks.map((o,j)=>({key:o[1],text:clean(firstPart.slice(o.index+o[0].length,marks[j+1]?.index??firstPart.length))})),answer,explanation:chunks[0]||'原题库未提供解析。',notes:chunks.slice(1).join('\n\n'),topic,source:title};
+      return {id:'q-'+hash(title+'|'+m[1]+'|'+firstPart),number:Number(m[1]),type,exam:topic.replace(/\s/g,'').match(/科目[一二三四]/)?.[0]||'科目三',stem:clean(firstPart.slice(0,marks[0]?.index??firstPart.length)),options:type==='judge'?[{key:'A',text:'对'},{key:'B',text:'错'}]:marks.map((o,j)=>({key:o[1],text:clean(firstPart.slice(o.index+o[0].length,marks[j+1]?.index??firstPart.length))})),answer,explanation:chunks[0]||'原题库未提供解析。',notes:chunks.slice(1).join('\n\n'),topic,source:title};
     });
     return validateBank({title,questions});
   }
