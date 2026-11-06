@@ -4,3 +4,5 @@
 #inline-result .result-answer{display:grid;gap:10px}#inline-result .result-answer>span{display:block}#inline-result:not([hidden]){animation:reveal-answer .22s ease-out}.bank-update-note{font-size:12px;color:#8a97ad;line-height:1.9;margin-top:24px;padding:15px;background:#f6f7fb;border-radius:9px}@keyframes reveal-answer{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}@media(prefers-reduced-motion:reduce){#inline-result{animation:none!important}}
 
 .question-card{touch-action:pan-y pinch-zoom}.swipe-hint{display:none;margin:-8px 0 20px;color:#8997bf;font-size:10px;line-height:1.8}.swipe-hint span{display:block;font-size:9px;color:#a8afbf}@media(max-width:700px),(pointer:coarse){.swipe-hint{display:block}}
+
+.swipe-hint{user-select:none;-webkit-user-select:none}.option:disabled{pointer-events:none}#swipe-status{color:#7385b5;font-size:9px}

@@ -69,28 +69,25 @@
  $('manage-button').addEventListener('click',manage);$('bank-info-top').addEventListener('click',manage);$('close-manage').addEventListener('click',()=>$('manage-dialog').close());
  const swipeCard=document.querySelector('.question-card');
  let swipe=null,suppressClickUntil=0;
- swipeCard.addEventListener('touchstart',event=>{
+ function beginSwipe(point,target,count=1){
   swipe=null;
-  if(event.touches.length!==1||!current||$('manage-dialog').open||window.getSelection?.()?.toString())return;
-  if(event.target.closest('a,input,select,textarea,summary,details,button:not(.option)'))return;
-  const touch=event.touches[0];
-  // Leave screen-edge gestures to Safari/Chrome's back and forward navigation.
-  if(touch.clientX<24||touch.clientX>window.innerWidth-24)return;
-  swipe={x:touch.clientX,y:touch.clientY,id:touch.identifier,time:Date.now(),question:current,axis:null};
- },{passive:true});
- swipeCard.addEventListener('touchmove',event=>{
+  if(count!==1||!current||$('manage-dialog').open||window.getSelection?.()?.toString())return;
+  if(target.closest('a,input,select,textarea,summary,details,button:not(.option)'))return;
+  // Preserve the browser's edge-back gesture; the rest of the question card is swipeable.
+  if(point.clientX<20||point.clientX>window.innerWidth-20)return;
+  swipe={x:point.clientX,y:point.clientY,id:point.identifier,time:Date.now(),question:current,axis:null};
+ }
+ function moveSwipe(point,count,event){
   if(!swipe)return;
-  if(event.touches.length!==1){swipe=null;return;}
-  const touch=event.touches[0];if(touch.identifier!==swipe.id){swipe=null;return;}
-  const dx=Math.abs(touch.clientX-swipe.x),dy=Math.abs(touch.clientY-swipe.y);
-  if(!swipe.axis&&Math.max(dx,dy)>12)swipe.axis=dx>dy*1.6?'x':'y';
+  if(count!==1||point.identifier!==swipe.id){swipe=null;return;}
+  const dx=Math.abs(point.clientX-swipe.x),dy=Math.abs(point.clientY-swipe.y);
+  if(!swipe.axis){if(dx>=18&&dx>dy*1.5)swipe.axis='x';else if(dy>=18&&dy>dx)swipe.axis='y';}
   if(swipe.axis==='x'&&event.cancelable)event.preventDefault();
- },{passive:false});
- swipeCard.addEventListener('touchend',event=>{
-  const start=swipe;swipe=null;if(!start||event.touches.length||start.question!==current||Date.now()-start.time>1000)return;
-  const touch=[...event.changedTouches].find(t=>t.identifier===start.id);if(!touch)return;
-  const dx=touch.clientX-start.x,dy=touch.clientY-start.y;
-  if(start.axis==='y'||Math.abs(dx)<64||Math.abs(dx)<Math.abs(dy)*1.6||Math.abs(dy)>85||window.getSelection?.()?.toString())return;
+ }
+ function endSwipe(point,count,event){
+  const start=swipe;swipe=null;if(!start||count||!point||point.identifier!==start.id||start.question!==current||Date.now()-start.time>1500)return;
+  const dx=point.clientX-start.x,dy=point.clientY-start.y;
+  if(start.axis==='y'||Math.abs(dx)<48||Math.abs(dx)<Math.abs(dy)*1.5||window.getSelection?.()?.toString())return;
   // Consume the gesture even at an endpoint so it cannot accidentally select an answer.
   suppressClickUntil=Date.now()+400;
   if(event.cancelable)event.preventDefault();
@@ -98,8 +95,30 @@
   if(target<0){toast('已经是本组第一题。');return;}
   if(target>=queue.length){toast('已经是本组最后一题。');return;}
   go(queue[target]);$('question-area').scrollIntoView({block:'start',behavior:'instant'});
- },{passive:false});
- swipeCard.addEventListener('touchcancel',()=>{swipe=null;},{passive:true});
+ }
+ if(window.PointerEvent){
+  // Pointer Events are the primary path on current iPhone Safari and Android browsers.
+  const point=event=>({clientX:event.clientX,clientY:event.clientY,identifier:event.pointerId});
+  swipeCard.addEventListener('pointerdown',event=>{
+   if(event.isPrimary===false){swipe=null;return;}
+   if(event.pointerType==='mouse'&&event.button!==0)return;
+   beginSwipe(point(event),event.target);
+  },{passive:true});
+  swipeCard.addEventListener('pointermove',event=>{
+   moveSwipe(point(event),1,event);
+   if(swipe?.axis==='x')try{swipeCard.setPointerCapture(event.pointerId);}catch{}
+  },{passive:false});
+  swipeCard.addEventListener('pointerup',event=>endSwipe(point(event),0,event),{passive:false});
+  swipeCard.addEventListener('pointercancel',()=>{swipe=null;},{passive:true});
+  swipeCard.addEventListener('lostpointercapture',()=>{swipe=null;},{passive:true});
+ }else{
+  // Older WebKit falls back to Touch Events; never run both paths for one gesture.
+  swipeCard.addEventListener('touchstart',event=>{if(event.touches.length===1)beginSwipe(event.touches[0],event.target);else swipe=null;},{passive:true});
+  swipeCard.addEventListener('touchmove',event=>{if(event.touches.length===1)moveSwipe(event.touches[0],1,event);else swipe=null;},{passive:false});
+  swipeCard.addEventListener('touchend',event=>endSwipe(Array.from(event.changedTouches).find(t=>t.identifier===swipe?.id),event.touches.length,event),{passive:false});
+  swipeCard.addEventListener('touchcancel',()=>{swipe=null;},{passive:true});
+ }
  swipeCard.addEventListener('click',event=>{if(Date.now()<suppressClickUntil){event.preventDefault();event.stopImmediatePropagation();}},{capture:true});
  rebuild();refreshBankOptions();buildQueue(true);if(storageProblem)toast('部分本机历史数据未能读取，现有文件未被删除。');
+ $('swipe-status').textContent='左右滑动切题已开启 · v2';
 })();
