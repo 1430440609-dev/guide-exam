@@ -44,6 +44,33 @@
     const valid=Array.isArray(order)&&order.length===keys.length&&new Set(order).size===keys.length&&order.every(k=>keys.includes(k));
     return (valid?order:keys).map((key,i)=>({...q.options.find(o=>o.key===key),label:String.fromCharCode(65+i)}));
   }
-  const api={clean,fingerprint,exactMatch,hash,validateBank,parseText,mergeBanks,shuffled,optionLayout};
+  const weights={judge:0.5,single:0.5,multiple:1};
+  function gradeAttempt(q,selected){const keys=Array.isArray(selected)?selected:[];const valid=keys.every(k=>q.options.some(o=>o.key===k))&&new Set(keys).size===keys.length&&(q.type==='multiple'||keys.length<=1);const correct=valid&&exactMatch(keys,q.answer);return{selected:keys.slice(),correct,points:correct?weights[q.type]:0,maxPoints:weights[q.type]};}
+  function scoreExam(questions,answers={}){const report={score:0,maxScore:0,answered:0,correct:0,unanswered:0,byType:{},results:{}};for(const q of questions){const r=gradeAttempt(q,answers[q.id]);report.results[q.id]=r;report.score+=r.points;report.maxScore+=r.maxPoints;report.answered+=r.selected.length?1:0;report.correct+=r.correct?1:0;const t=report.byType[q.type]||(report.byType[q.type]={count:0,correct:0,score:0,maxScore:0});t.count++;t.correct+=r.correct?1:0;t.score+=r.points;t.maxScore+=r.maxPoints;}report.unanswered=questions.length-report.answered;return report;}
+  function localDay(date=new Date()){return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');}
+  function nextReview(previous,correct,day=localDay()){const stage=previous?.stage||0;if(correct&&stage>=3)return null;const [y,m,d]=day.split('-').map(Number),gap=correct?[1,3,7][stage]:1;return{stage:correct?stage+1:0,due:localDay(new Date(y,m-1,d+gap))};}
+  function createBackup(state){return{format:'guide-study-backup',version:1,createdAt:new Date().toISOString(),state:JSON.parse(JSON.stringify(state))};}
+  function validateBackup(input,questions){
+    const obj=x=>x&&typeof x==='object'&&!Array.isArray(x),fail=()=>{throw new Error('备份格式不完整或包含无效作答，请选择本站导出的 JSON 备份。');};
+    if(!obj(input)||input.format!=='guide-study-backup'||input.version!==1||!obj(input.state))fail();const s=input.state,map=new Map(questions.map(q=>[q.id,q])),modes=['all','random','wrong','starred','uncertain','review','exam'];
+    if(!obj(s.records)||!Array.isArray(s.wrong)||!Array.isArray(s.starred))fail();
+    const ids=items=>{if(!Array.isArray(items))fail();if(items.some(id=>!map.has(id)))throw new Error('备份含当前题库未找到的题目，请先刷新网站后重试。');return [...new Set(items)];};
+    const selected=(id,keys)=>{const q=map.get(id);if(!q||!Array.isArray(keys)||keys.some(k=>!q.options.some(o=>o.key===k))||new Set(keys).size!==keys.length||(q.type!=='multiple'&&keys.length>1))fail();return keys.slice();};
+    const records=items=>{if(!obj(items))fail();return Object.fromEntries(Object.entries(items).map(([id,r])=>{if(!obj(r))fail();const keys=selected(id,r.selected);return[id,{selected:keys,correct:gradeAttempt(map.get(id),keys).correct,at:Number(r.at)||0,wrongVersion:Number.isSafeInteger(r.wrongVersion)&&r.wrongVersion>=0?r.wrongVersion:0}];}));};
+    const choices=items=>{if(!obj(items))fail();return Object.fromEntries(Object.entries(items).map(([id,keys])=>[id,selected(id,keys)]));};
+    const keyValid=key=>{let k;try{k=JSON.parse(key);}catch{fail();}if(!Array.isArray(k)||k.length!==4||!modes.includes(k[0])||(k[1]!=='all'&&!questions.some(q=>q.bankId===k[1])))fail();return k;};
+    const practice=p=>{if(!obj(p))fail();const k=keyValid(p.key),queue=ids(p.queue);if(k[1]!=='all'&&queue.some(id=>map.get(id).bankId!==k[1]))fail();const orders={};for(const[id,order]of Object.entries(p.optionOrders||{})){const q=map.get(id);if(!q||!Array.isArray(order)||order.length!==q.options.length||new Set(order).size!==order.length||order.some(a=>!q.options.some(o=>o.key===a)))fail();orders[id]=order.slice();}const result={...p,queue,records:records(p.records||{}),drafts:choices(p.drafts||{}),optionOrders:orders,examAnswers:choices(p.examAnswers||{})};if(k[0]==='exam')result.records={};return result;};
+    const out={...s,records:records(s.records),drafts:choices(s.drafts||{}),wrong:ids(s.wrong),starred:ids(s.starred),uncertain:ids(s.uncertain||[]),practices:{},rounds:{},reviews:{},wrongEvents:{},lastExams:{},modeFilters:{}};
+    if(!modes.includes(out.mode))fail();if(out.bank!=='all'&&!questions.some(q=>q.bankId===out.bank))fail();
+    for(const[k,p]of Object.entries(s.practices||{})){keyValid(k);if(p.key!==k)fail();out.practices[k]=practice(p);}out.practice=s.practice?practice(s.practice):null;
+    for(const[k,r]of Object.entries(s.rounds||{})){keyValid(k);if(!obj(r)||!Number.isSafeInteger(r.started)||!Number.isSafeInteger(r.completed)||r.started<0||r.completed<0||r.completed>r.started)fail();out.rounds[k]={started:r.started,completed:r.completed};}
+    for(const[id,r]of Object.entries(s.reviews||{})){if(!map.has(id)||!obj(r)||!Number.isInteger(r.stage)||r.stage<0||r.stage>3||!/^\d{4}-\d{2}-\d{2}$/.test(r.due)||localDay(new Date(r.due+'T12:00:00'))!==r.due)fail();out.reviews[id]={stage:r.stage,due:r.due};}
+    for(const[id,n]of Object.entries(s.wrongEvents||{})){if(!map.has(id)||!Number.isSafeInteger(n)||n<0)fail();out.wrongEvents[id]=n;}
+    out.wrongSerial=Math.max(Number.isSafeInteger(s.wrongSerial)?s.wrongSerial:0,0,...Object.values(out.wrongEvents));
+    for(const[bank,x]of Object.entries(s.lastExams||{})){if(!questions.some(q=>q.bankId===bank)||!obj(x))fail();const answers=choices(x.answers||{});if(Object.keys(answers).some(id=>map.get(id).bankId!==bank))fail();out.lastExams[bank]={answers,submittedAt:Number(x.submittedAt)||0,round:Number(x.round)||1};}
+    if(out.practice){const active=JSON.parse(out.practice.key);if(active[0]!==out.mode||(active[1]!=='all'&&active[1]!==out.bank))fail();}
+    return out;
+  }
+  const api={clean,fingerprint,exactMatch,hash,validateBank,parseText,mergeBanks,shuffled,optionLayout,gradeAttempt,scoreExam,localDay,nextReview,createBackup,validateBackup};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GuideEngine=api;
 })(globalThis);
