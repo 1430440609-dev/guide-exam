@@ -15,7 +15,7 @@
       if(raw.type==='judge' && raw.options.length!==2)throw new Error(`${name}的判断题必须有两个选项。`);
       const id=typeof raw.id==='string'&&raw.id?raw.id:'q-'+hash(fingerprint(raw));
       if(ids.has(id))throw new Error(`${name}的编号重复。`);ids.add(id);
-      return {id,number:Number(raw.number)||i+1,type:raw.type,exam:['科目一','科目二','科目三','科目四'].includes(raw.exam)?raw.exam:'科目三',stem:raw.stem.trim(),options:raw.options.map(o=>({key:o.key,text:o.text.trim()})),answer:raw.answer.slice(),explanation:typeof raw.explanation==='string'?raw.explanation:'原题库未提供解析。',notes:typeof raw.notes==='string'?raw.notes:'',topic:typeof raw.topic==='string'?raw.topic:'',source:typeof raw.source==='string'?raw.source:String(input.title||'导入题库'),answerNote:typeof raw.answerNote==='string'?raw.answerNote:''};
+      return {id,number:Number(raw.number)||i+1,type:raw.type,exam:['科目一','科目二','科目三','科目四','科一科二','科三科四'].includes(raw.exam)?raw.exam:'科目三',stem:raw.stem.trim(),options:raw.options.map(o=>({key:o.key,text:o.text.trim()})),answer:raw.answer.slice(),explanation:typeof raw.explanation==='string'?raw.explanation:'原题库未提供解析。',notes:typeof raw.notes==='string'?raw.notes:'',topic:typeof raw.topic==='string'?raw.topic:'',source:typeof raw.source==='string'?raw.source:String(input.title||'导入题库'),answerNote:typeof raw.answerNote==='string'?raw.answerNote:''};
     });
     return {schemaVersion:1,id:String(input.id||'bank-'+hash(questions.map(fingerprint).join('\n'))),title:typeof input.title==='string'&&input.title.trim()?input.title.trim():'新导入题库',source:String(input.source||''),questions};
   }
@@ -37,7 +37,7 @@
     });
     return validateBank({title,questions});
   }
-  function mergeBanks(banks){const seen=new Set(),ids=new Set(),questions=[];for(const bank of banks)for(const q of bank.questions){const key=fingerprint(q);if(seen.has(key))continue;seen.add(key);let id=q.id;if(ids.has(id))id=bank.id+'-'+id;if(ids.has(id))id+='-'+hash(key);ids.add(id);questions.push({...q,id,bankId:bank.id});}return questions;}
+  function mergeBanks(banks){const seen=new Set(),ids=new Set(),questions=[];for(const bank of banks)for(const q of bank.questions){const key=bank.id+'|'+q.id;if(seen.has(key))continue;seen.add(key);let id=q.id;if(ids.has(id))id=bank.id+'-'+id;if(ids.has(id))id+='-'+hash(key);ids.add(id);questions.push({...q,id,bankId:bank.id});}return questions;}
   function shuffled(items,random=Math.random){const result=items.slice();for(let i=result.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[result[i],result[j]]=[result[j],result[i]];}return result;}
   function optionLayout(q,order){
     const keys=q.options.map(o=>o.key);

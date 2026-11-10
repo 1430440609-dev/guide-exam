@@ -135,7 +135,7 @@
  function selectMode(name){if(!MODE[name]||name===state.mode)return;state.mode=name;buildQueue();}
  function selectPaper(bank,mode='all'){state.bank=bank;state.mode=mode;buildQueue();$('paper-tip').scrollIntoView({block:'start',behavior:'smooth'});}
  function renderLearning(){
-  const due=all.filter(q=>isDue(q.id));$('overview-summary').textContent=`八套试卷学习进度 · 今日到期 ${due.length} 题`;$('review-badge').textContent=due.filter(q=>matches(q)).length;$('paper-cards').replaceChildren();
+  const due=all.filter(q=>isDue(q.id));$('overview-summary').textContent=`${banks.length} 套试卷学习进度 · 今日到期 ${due.length} 题`;$('review-badge').textContent=due.filter(q=>matches(q)).length;$('paper-cards').replaceChildren();
   for(const bank of banks){const paper=all.filter(q=>q.bankId===bank.id),key=JSON.stringify(['all',bank.id,'all','all']),p=state.practice?.key===key?state.practice:state.practices[key],round=state.rounds[key]||{started:0,completed:0},done=paper.filter(q=>validRecord(q,p?.records?.[q.id])).length,wrong=paper.filter(q=>state.wrong.includes(q.id)).length,uncertain=paper.filter(q=>state.uncertain.includes(q.id)).length,dueCount=paper.filter(q=>isDue(q.id)).length;
    const card=create('article','paper-card'+(bank.id===state.bank?' active':''));card.append(create('h3','',bank.title),create('p','',`已完整刷完 ${round.completed} 遍 · 本轮 ${done} / ${paper.length}`),create('p','muted',`错题 ${wrong} · 待巩固 ${uncertain} · 今日到期 ${dueCount}`));
    const track=create('div','progress-track'),fill=create('div');fill.style.width=done/paper.length*100+'%';track.append(fill);card.append(track);
