@@ -47,19 +47,36 @@
   const weights={judge:0.5,single:0.5,multiple:1};
   function gradeAttempt(q,selected){const keys=Array.isArray(selected)?selected:[];const valid=keys.every(k=>q.options.some(o=>o.key===k))&&new Set(keys).size===keys.length&&(q.type==='multiple'||keys.length<=1);const correct=valid&&exactMatch(keys,q.answer);return{selected:keys.slice(),correct,points:correct?weights[q.type]:0,maxPoints:weights[q.type]};}
   function scoreExam(questions,answers={}){const report={score:0,maxScore:0,answered:0,correct:0,unanswered:0,byType:{},results:{}};for(const q of questions){const r=gradeAttempt(q,answers[q.id]);report.results[q.id]=r;report.score+=r.points;report.maxScore+=r.maxPoints;report.answered+=r.selected.length?1:0;report.correct+=r.correct?1:0;const t=report.byType[q.type]||(report.byType[q.type]={count:0,correct:0,score:0,maxScore:0});t.count++;t.correct+=r.correct?1:0;t.score+=r.points;t.maxScore+=r.maxPoints;}report.unanswered=questions.length-report.answered;return report;}
+  const examCounts={judge:40,single:90,multiple:35};
+  function randomExam(questions,records={},random=Math.random){
+    const queue=[],shortages=[];let newCount=0,wrongCount=0;
+    for(const [type,count] of Object.entries(examCounts)){
+      const group=questions.filter(q=>q.type===type),fresh=[],wrong=[];
+      for(const q of group){const r=records[q.id];if(!r?.selected?.length)fresh.push(q.id);else if(!gradeAttempt(q,r.selected).correct)wrong.push(q.id);}
+      if(fresh.length+wrong.length<count){shortages.push({type,available:fresh.length+wrong.length,required:count});continue;}
+      const oldCount=Math.min(wrong.length,Math.max(Math.floor(count*.2),count-fresh.length));
+      const old=shuffled(wrong,random).slice(0,oldCount),added=shuffled(fresh,random).slice(0,count-old.length);
+      newCount+=added.length;wrongCount+=old.length;queue.push(...shuffled([...added,...old],random));
+    }
+    return {queue:shortages.length?[]:queue,shortages,newCount,wrongCount};
+  }
+  const duration=value=>{const seconds=Math.floor(Math.max(0,Number(value)||0)/1000);return [Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(n=>String(n).padStart(2,'0')).join(':');};
   function localDay(date=new Date()){return [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');}
   function nextReview(previous,correct,day=localDay()){const stage=previous?.stage||0;if(correct&&stage>=3)return null;const [y,m,d]=day.split('-').map(Number),gap=correct?[1,3,7][stage]:1;return{stage:correct?stage+1:0,due:localDay(new Date(y,m-1,d+gap))};}
   function createBackup(state){return{format:'guide-study-backup',version:1,createdAt:new Date().toISOString(),state:JSON.parse(JSON.stringify(state))};}
   function validateBackup(input,questions){
     const obj=x=>x&&typeof x==='object'&&!Array.isArray(x),fail=()=>{throw new Error('备份格式不完整或包含无效作答，请选择本站导出的 JSON 备份。');};
-    if(!obj(input)||input.format!=='guide-study-backup'||input.version!==1||!obj(input.state))fail();const s=input.state,map=new Map(questions.map(q=>[q.id,q])),modes=['all','random','wrong','starred','uncertain','review','exam'];
+    if(!obj(input)||input.format!=='guide-study-backup'||input.version!==1||!obj(input.state))fail();const s=input.state,map=new Map(questions.map(q=>[q.id,q])),modes=['all','random','wrong','starred','uncertain','review','exam','examReview'];
     if(!obj(s.records)||!Array.isArray(s.wrong)||!Array.isArray(s.starred))fail();
     const ids=items=>{if(!Array.isArray(items))fail();if(items.some(id=>!map.has(id)))throw new Error('备份含当前题库未找到的题目，请先刷新网站后重试。');return [...new Set(items)];};
     const selected=(id,keys)=>{const q=map.get(id);if(!q||!Array.isArray(keys)||keys.some(k=>!q.options.some(o=>o.key===k))||new Set(keys).size!==keys.length||(q.type!=='multiple'&&keys.length>1))fail();return keys.slice();};
     const records=items=>{if(!obj(items))fail();return Object.fromEntries(Object.entries(items).map(([id,r])=>{if(!obj(r))fail();const keys=selected(id,r.selected);return[id,{selected:keys,correct:gradeAttempt(map.get(id),keys).correct,at:Number(r.at)||0,wrongVersion:Number.isSafeInteger(r.wrongVersion)&&r.wrongVersion>=0?r.wrongVersion:0}];}));};
     const choices=items=>{if(!obj(items))fail();return Object.fromEntries(Object.entries(items).map(([id,keys])=>[id,selected(id,keys)]));};
-    const keyValid=key=>{let k;try{k=JSON.parse(key);}catch{fail();}if(!Array.isArray(k)||k.length!==4||!modes.includes(k[0])||(k[1]!=='all'&&!questions.some(q=>q.bankId===k[1])))fail();return k;};
-    const practice=p=>{if(!obj(p))fail();const k=keyValid(p.key),queue=ids(p.queue);if(k[1]!=='all'&&queue.some(id=>map.get(id).bankId!==k[1]))fail();const orders={};for(const[id,order]of Object.entries(p.optionOrders||{})){const q=map.get(id);if(!q||!Array.isArray(order)||order.length!==q.options.length||new Set(order).size!==order.length||order.some(a=>!q.options.some(o=>o.key===a)))fail();orders[id]=order.slice();}const result={...p,queue,records:records(p.records||{}),drafts:choices(p.drafts||{}),optionOrders:orders,examAnswers:choices(p.examAnswers||{})};if(k[0]==='exam')result.records={};return result;};
+    const globalKey=k=>['exam','examReview'].includes(k[0])&&k[1]==='@global';
+    const keyValid=key=>{let k;try{k=JSON.parse(key);}catch{fail();}if(!Array.isArray(k)||k.length!==4||!modes.includes(k[0])||(!globalKey(k)&&k[1]!=='all'&&!questions.some(q=>q.bankId===k[1])))fail();return k;};
+    const elapsed=n=>{if(n===undefined)return 0;if(!Number.isFinite(n)||n<0||n>31536000000)fail();return n;};
+    const fullQueue=queue=>{if(queue.length!==165||new Set(queue).size!==165)fail();let start=0;for(const [type,count]of Object.entries(examCounts)){if(queue.slice(start,start+count).some(id=>map.get(id)?.type!==type))fail();start+=count;}};
+    const practice=p=>{if(!obj(p))fail();const k=keyValid(p.key),queue=ids(p.queue);if(!globalKey(k)&&k[1]!=='all'&&queue.some(id=>map.get(id).bankId!==k[1]))fail();if(globalKey(k)&&k[0]==='exam'&&queue.length)fullQueue(queue);const orders={};for(const[id,order]of Object.entries(p.optionOrders||{})){const q=map.get(id);if(!q||!Array.isArray(order)||order.length!==q.options.length||new Set(order).size!==order.length||order.some(a=>!q.options.some(o=>o.key===a)))fail();orders[id]=order.slice();}const result={...p,queue,records:records(p.records||{}),drafts:choices(p.drafts||{}),optionOrders:orders,examAnswers:choices(p.examAnswers||{}),elapsedMs:elapsed(p.elapsedMs)};if(k[0]==='exam'){result.records={};if(Object.keys(result.examAnswers).some(id=>!queue.includes(id)))fail();}return result;};
     const out={...s,records:records(s.records),drafts:choices(s.drafts||{}),wrong:ids(s.wrong),starred:ids(s.starred),uncertain:ids(s.uncertain||[]),practices:{},rounds:{},reviews:{},wrongEvents:{},lastExams:{},modeFilters:{}};
     if(!modes.includes(out.mode))fail();if(out.bank!=='all'&&!questions.some(q=>q.bankId===out.bank))fail();
     for(const[k,p]of Object.entries(s.practices||{})){keyValid(k);if(p.key!==k)fail();out.practices[k]=practice(p);}out.practice=s.practice?practice(s.practice):null;
@@ -67,10 +84,13 @@
     for(const[id,r]of Object.entries(s.reviews||{})){if(!map.has(id)||!obj(r)||!Number.isInteger(r.stage)||r.stage<0||r.stage>3||!/^\d{4}-\d{2}-\d{2}$/.test(r.due)||localDay(new Date(r.due+'T12:00:00'))!==r.due)fail();out.reviews[id]={stage:r.stage,due:r.due};}
     for(const[id,n]of Object.entries(s.wrongEvents||{})){if(!map.has(id)||!Number.isSafeInteger(n)||n<0)fail();out.wrongEvents[id]=n;}
     out.wrongSerial=Math.max(Number.isSafeInteger(s.wrongSerial)?s.wrongSerial:0,0,...Object.values(out.wrongEvents));
-    for(const[bank,x]of Object.entries(s.lastExams||{})){if(!questions.some(q=>q.bankId===bank)||!obj(x))fail();const answers=choices(x.answers||{});if(Object.keys(answers).some(id=>map.get(id).bankId!==bank))fail();out.lastExams[bank]={answers,submittedAt:Number(x.submittedAt)||0,round:Number(x.round)||1};}
-    if(out.practice){const active=JSON.parse(out.practice.key);if(active[0]!==out.mode||(active[1]!=='all'&&active[1]!==out.bank))fail();}
+    for(const[bank,x]of Object.entries(s.lastExams||{})){if(!questions.some(q=>q.bankId===bank)||!obj(x))fail();const answers=choices(x.answers||{});if(Object.keys(answers).some(id=>map.get(id).bankId!==bank))fail();out.lastExams[bank]={answers,submittedAt:Number(x.submittedAt)||0,round:Number(x.round)||1,elapsedMs:elapsed(x.elapsedMs)};}
+    if(!['paper','global'].includes(s.examKind||'paper'))fail();out.examKind=s.examKind||'paper';out.examReviewIds=ids(s.examReviewIds||[]);
+    const g=s.globalExams||{cycle:1,results:{},cycleResults:{},history:[]};if(!obj(g)||!Number.isSafeInteger(g.cycle)||g.cycle<1||!Array.isArray(g.history))fail();
+    out.globalExams={cycle:g.cycle,results:records(g.results||{}),cycleResults:records(g.cycleResults||{}),history:g.history.map(h=>{if(!obj(h))fail();const queue=ids(h.queue);fullQueue(queue);const answers=choices(h.answers);if(Object.keys(answers).some(id=>!queue.includes(id)))fail();return{queue,answers,submittedAt:Number(h.submittedAt)||0,round:Number(h.round)||1,cycle:Number(h.cycle)||1,elapsedMs:elapsed(h.elapsedMs),newCount:Number(h.newCount)||0};})};
+    if(out.practice){const active=JSON.parse(out.practice.key);if(active[0]!==out.mode||(!globalKey(active)&&active[1]!=='all'&&active[1]!==out.bank)||(active[0]==='exam'&&globalKey(active)&&out.examKind!=='global'))fail();}
     return out;
   }
-  const api={clean,fingerprint,exactMatch,hash,validateBank,parseText,mergeBanks,shuffled,optionLayout,gradeAttempt,scoreExam,localDay,nextReview,createBackup,validateBackup};
+  const api={clean,fingerprint,exactMatch,hash,validateBank,parseText,mergeBanks,shuffled,optionLayout,gradeAttempt,scoreExam,randomExam,duration,localDay,nextReview,createBackup,validateBackup};
   if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.GuideEngine=api;
 })(globalThis);
