@@ -8,7 +8,7 @@
  const banks=(window.GUIDE_BANKS||[window.GUIDE_BANK]).map(E.validateBank).sort((a,b)=>{const av=bankRank(a),bv=bankRank(b);return av[0]-bv[0]||av[1]-bv[1];});
  let all=[],lookup=new Map(),queue=[],current='',selection=[],gridPage=0,toastTimer;
  let state={records:{},drafts:{},wrong:[],starred:[],current:'',mode:'all',exam:'all',type:'all',bank:'all',practice:null,practices:{},modeFilters:{},rounds:{},wrongEvents:{},wrongSerial:0,uncertain:[],reviews:{},lastExams:{}};
- let examReady=false;
+ let examReady=false,examHistoryLimit=10;
  let timerAnchor=null,timerPractice=null,timerSuspended=false,timerSaves=0;
  let storageProblem=false;
  try{const raw=JSON.parse(localStorage.getItem(KEY));if(raw&&raw.records&&typeof raw.records==='object'&&!Array.isArray(raw.records)&&Array.isArray(raw.wrong)&&Array.isArray(raw.starred))state={...state,...raw};}catch{storageProblem=true;}
@@ -32,7 +32,7 @@
  function matches(q){return state.mode==='examReview'?state.examReviewIds.includes(q.id):q.bankId===state.bank;}
 
  function rebuild(){
-  state.examKind=state.examKind==='paper'?'paper':'global';state.examGroup=state.examGroup==='34'?'34':'12';if(!state.globalExams||typeof state.globalExams!=='object')state.globalExams={cycle:1,results:{},cycleResults:{},history:[]};if(!Array.isArray(state.examReviewIds))state.examReviewIds=[];
+  if(!Array.isArray(state.examHistory))state.examHistory=[];state.examKind=state.examKind==='paper'?'paper':'global';state.examGroup=state.examGroup==='34'?'34':'12';if(!state.globalExams||typeof state.globalExams!=='object')state.globalExams={cycle:1,results:{},cycleResults:{},history:[]};if(!Array.isArray(state.examReviewIds))state.examReviewIds=[];
   all=E.mergeBanks(banks);lookup=new Map(all.map(q=>[q.id,q]));state.wrong=state.wrong.filter(id=>lookup.has(id));state.starred=state.starred.filter(id=>lookup.has(id));
   if(!banks.some(b=>b.id===state.bank))state.bank=lookup.get(state.practice?.current||state.current)?.bankId||banks[0].id;
   state.exam='all';state.type='all';if(!state.examBanks||typeof state.examBanks!=='object')state.examBanks={};if(!state.examKinds||typeof state.examKinds!=='object')state.examKinds={'12':state.examKind,'34':state.examKind};
@@ -56,8 +56,9 @@
   if(state.practice?.key)state.practices[state.practice.key]=state.practice;
   const key=practiceKey(),saved=state.practices[key],previous=saved||priorPractice(),round=roundInfo();
   if(wrongMode()&&previous?.completed&&Array.isArray(previous.queue)&&previous.records)settleWrongRound(previous);
+  if(state.mode==='examReview'&&previous?.completed)state.examReviewIds=remainingWrongIds();
   const usable=!(wrongMode()&&previous?.completed)&&!(state.mode==='uncertain'&&previous?.completed)&&!(state.mode==='review'&&(previous?.completed||previous?.reviewDay!==E.localDay()))&&previous&&Array.isArray(previous.queue)&&previous.records&&typeof previous.records==='object'&&previous.drafts&&typeof previous.drafts==='object';
-  const eligible=all.filter(q=>matches(q)&&(!wrongMode()||state.wrong.includes(q.id))&&(state.mode!=='starred'||state.starred.includes(q.id))&&(state.mode!=='uncertain'||state.uncertain.includes(q.id))&&(state.mode!=='review'||isDue(q.id))).sort((a,b)=>a.number-b.number).map(q=>q.id);
+  const eligible=all.filter(q=>matches(q)&&(!wrongMode()||state.mode==='examReview'||state.wrong.includes(q.id))&&(state.mode!=='starred'||state.starred.includes(q.id))&&(state.mode!=='uncertain'||state.uncertain.includes(q.id))&&(state.mode!=='review'||isDue(q.id))).sort((a,b)=>a.number-b.number).map(q=>q.id);
   if(usable){
    const kept=[...new Set(previous.queue)].filter(id=>lookup.has(id)&&matches(lookup.get(id))&&(state.mode!=='review'||isDue(id))&&(state.mode!=='uncertain'||state.uncertain.includes(id)));
    queue=state.mode==='random'?kept:kept.sort((a,b)=>lookup.get(a).number-lookup.get(b).number);
@@ -171,7 +172,7 @@
  function finishExam(){
   if(state.mode!=='exam'||!examReady||state.practice?.submitted||!queue.length||queue.indexOf(current)!==queue.length-1)return;syncTimer();const p=state.practice,report=E.scoreExam(examQuestions(),p.examAnswers),at=Date.now();
   for(const q of examQuestions()){const r={...report.results[q.id],at};if(!r.correct){state.wrongEvents[q.id]=++state.wrongSerial;if(!state.wrong.includes(q.id))state.wrong.push(q.id);scheduleReview(q.id,false);}else if(isDue(q.id))scheduleReview(q.id,true);r.wrongVersion=state.wrongEvents[q.id]||0;if(r.selected.length)state.records[q.id]=r;}
-  p.submitted=true;p.completed=true;p.submittedAt=at;roundInfo().completed++;if(globalExam())settleGlobalExam(p,report,at);else state.lastExams[state.bank]={answers:JSON.parse(JSON.stringify(p.examAnswers)),submittedAt:at,round:p.round,elapsedMs:p.elapsedMs||0};$('exam-dialog').close();save();render();$('exam-report').scrollIntoView({block:'start',behavior:'smooth'});toast(`已交卷，本轮 ${report.score} 分。`);
+  p.submitted=true;p.completed=true;p.submittedAt=at;roundInfo().completed++;if(globalExam())settleGlobalExam(p,report,at);else{const snapshot={queue:queue.slice(),answers:JSON.parse(JSON.stringify(p.examAnswers)),submittedAt:at,round:p.round,elapsedMs:p.elapsedMs||0};state.examHistory.push(snapshot);state.lastExams[state.bank]={answers:snapshot.answers,submittedAt:at,round:p.round,elapsedMs:p.elapsedMs||0};}$('exam-dialog').close();save();render();$('exam-report').scrollIntoView({block:'start',behavior:'smooth'});toast(`已交卷，本轮 ${report.score} 分。`);
  }
  function groupTitle(group){return group==='34'?'科三科四':'科一科二';}
  function startExamGroup(group){
@@ -185,6 +186,7 @@
   $('study-layout').hidden=waiting;$('round-toolbar').hidden=waiting;$('mobile-controls').hidden=waiting;$('paper-overview').hidden=waiting;
   $('paper-toolbar').hidden=state.mode==='exam'&&(waiting||globalExam());
   if(!waiting)return false;
+  renderSavedExams();
   for(const group of ['12','34']){
    const pool=examPool(group),g=state.globalExamGroups[group],done=pool.filter(q=>validRecord(q,g.results[q.id])).length;
    const pending=Object.values(state.practices).find(p=>{let k;try{k=JSON.parse(p.key);}catch{return false;}return k[0]==='exam'&&!p.submitted&&p.queue?.length&&p.queue.every(id=>E.questionGroup(lookup.get(id)||{})===group);});
@@ -222,8 +224,35 @@
   const blocked=plan.shortages.length>0&&(!queue.length||p.submitted);$('global-exam-shortage').hidden=!blocked;$('global-shortage-text').textContent=blocked?`当前轮次无法按科目比例组成完整 165 题：${plan.shortages.map(x=>`${TYPE[x.type]}${x.subject?"（"+x.subject+"）":""}可抽 ${x.available} 题，需要 ${x.required} 题`).join('；')}。可查看本场解析，或开始新一轮。`:'';
   const history=$('global-history-list');history.replaceChildren();for(const h of g.history.slice(-10).reverse()){const report=E.scoreExam(h.queue.map(id=>lookup.get(id)),h.answers);history.append(create('p','',`第 ${h.round} 场 · 第 ${h.cycle} 轮 · ${report.score} / 100 分 · 用时 ${E.duration(h.elapsedMs)} · 新增刷题 ${h.newCount} 道`));}if(!g.history.length)history.append(create('p','muted','交卷后在这里保留成绩与用时；最近 10 场显示在此，全部记录随进度备份保存。'));
  }
+ function savedExams(){
+  const candidates=[...state.examHistory,...Object.values(state.globalExamGroups||{}).flatMap(g=>g.history||[]),...(state.globalExams?.history||[])];
+  for(const [bankId,h]of Object.entries(state.lastExams)){const paper=all.filter(q=>q.bankId===bankId).sort((a,b)=>a.number-b.number);if(paper.length)candidates.push({...h,queue:paper.map(q=>q.id)});}
+  for(const p of [state.practice,...Object.values(state.practices)])if(p?.submitted&&p.queue?.length)candidates.push({...p,answers:p.examAnswers||{}});
+  const seen=new Set(),result=[];
+  for(const h of candidates){if(!Array.isArray(h.queue)||!h.queue.length)continue;const ids=h.queue.filter(id=>lookup.has(id));if(ids.length!==h.queue.length)continue;const key=JSON.stringify([h.submittedAt||0,h.round||1,ids]);if(seen.has(key))continue;seen.add(key);const report=E.scoreExam(ids.map(id=>lookup.get(id)),h.answers||{});result.push({...h,queue:ids,report,mistakes:ids.filter(id=>!report.results[id].correct)});}
+  return result.sort((a,b)=>(b.submittedAt||0)-(a.submittedAt||0));
+ }
+ function savedExamMistakes(group){
+  const candidates=new Set(savedExams().flatMap(h=>h.mistakes));
+  for(const [id,r]of Object.entries(state.globalExamGroups[group]?.results||{}))if(lookup.has(id)&&!E.gradeAttempt(lookup.get(id),r.selected).correct)candidates.add(id);
+  return [...candidates].filter(id=>E.questionGroup(lookup.get(id))===group&&state.wrong.includes(id));
+ }
+ function renderSavedExams(){
+  for(const group of ['12','34']){const ids=savedExamMistakes(group),button=$('exam-wrong-'+group);button.textContent=`考试错题（${ids.length} 题待巩固）`;button.disabled=!ids.length;}
+  const history=savedExams(),list=$('saved-exam-list');list.replaceChildren();
+  if(!history.length)list.append(create('p','muted','还没有已交卷的考试。交卷后会在这里保留成绩、用时和错题入口。'));
+  for(const h of history.slice(0,examHistoryLimit)){
+   const groups=[...new Set(h.queue.map(id=>E.questionGroup(lookup.get(id))))],bankIds=[...new Set(h.queue.map(id=>lookup.get(id).bankId))];
+   const name=groups.length===1?groupTitle(groups[0]):'早期综合';const title=bankIds.length===1?banks.find(b=>b.id===bankIds[0])?.title:'随机组卷';
+   const row=create('article','saved-exam-row');const stamp=h.submittedAt?new Date(h.submittedAt).toLocaleString('zh-CN',{hour12:false}):'早期保存记录';
+   row.append(create('h4','',name+' · '+title),create('p','',`${stamp} · ${h.report.score} / ${h.report.maxScore} 分 · 用时 ${E.duration(h.elapsedMs)}`),create('p','',`本场答错 ${h.mistakes.length-h.report.unanswered} 题 · 未答 ${h.report.unanswered} 题`));
+   if(h.mistakes.length){const button=create('button','secondary-button',`重练本场错题（${h.mistakes.length} 题，含未答）`);button.type='button';button.addEventListener('click',()=>startExamReview(h.mistakes));row.append(button);}else row.append(create('p','muted','本场全部答对。'));
+   list.append(row);
+  }
+  $('exam-history-more').hidden=history.length<=examHistoryLimit;
+ }
  function startExamReview(ids){
-  syncTimer();if(state.practice?.key)state.practices[state.practice.key]=state.practice;state.examReviewIds=ids.slice();state.mode='examReview';if(banks.some(b=>b.id===state.practiceBank))state.bank=state.practiceBank;refreshBankOptions();const key=practiceKey();delete state.practices[key];state.practice=null;buildQueue();$('question-index').scrollIntoView({block:'start',behavior:'smooth'});
+  ids=[...new Set(ids)].filter(id=>lookup.has(id));if(!ids.length){toast('这里暂时没有考试错题。');return;}syncTimer();if(state.practice?.key)state.practices[state.practice.key]=state.practice;state.examReviewIds=ids.slice();state.mode='examReview';if(banks.some(b=>b.id===state.practiceBank))state.bank=state.practiceBank;refreshBankOptions();const key=practiceKey();delete state.practices[key];state.practice=null;buildQueue();$('question-index').scrollIntoView({block:'start',behavior:'smooth'});
  }
  function syncTimer(){
   const now=Date.now();if(timerAnchor!==null&&timerPractice)timerPractice.elapsedMs=Math.min(31536000000,(Number(timerPractice.elapsedMs)||0)+Math.max(0,now-timerAnchor));
@@ -237,6 +266,7 @@
  }
  let pendingRestore=null;
  function initLearning(){
+  $('exam-wrong-12').addEventListener('click',()=>startExamReview(savedExamMistakes('12')));$('exam-wrong-34').addEventListener('click',()=>startExamReview(savedExamMistakes('34')));$('exam-history-more').addEventListener('click',()=>{examHistoryLimit+=10;renderSavedExams();});
   $('exam-start-12').addEventListener('click',()=>startExamGroup('12'));$('exam-start-34').addEventListener('click',()=>startExamGroup('34'));$('change-exam-group').addEventListener('click',()=>{syncTimer();examReady=false;buildQueue();$('exam-entry').scrollIntoView({block:'start',behavior:'smooth'});});
   $('exam-kind').addEventListener('change',()=>{if(!examReady||!['paper','global'].includes($('exam-kind').value))return;syncTimer();state.examKind=$('exam-kind').value;state.examKinds[state.examGroup]=state.examKind;buildQueue();});$('new-exam-cycle').addEventListener('click',()=>{if(!examReady||!globalExam()||!globalPlan().shortages.length||(!state.practice.submitted&&queue.length))return;examLedger().cycle++;examLedger().cycleResults={};syncTimer();createGlobalExam();render();save();toast('已开始新一轮，累计覆盖和历史成绩已保留。');});
   $('mode-picker').addEventListener('change',()=>selectMode($('mode-picker').value));$('overview-button').addEventListener('click',()=>{$('paper-overview').open=true;$('paper-overview').scrollIntoView({block:'start',behavior:'smooth'});});

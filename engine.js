@@ -108,6 +108,7 @@
       const history=x.history.map(h=>{if(!obj(h))fail();const queue=ids(h.queue);fullQueue(queue);if(queue.some(id=>questionGroup(map.get(id))!==group))fail();const answers=choices(h.answers);if(Object.keys(answers).some(id=>!queue.includes(id)))fail();return{queue,answers,submittedAt:Number(h.submittedAt)||0,round:Number(h.round)||1,cycle:Number(h.cycle)||1,elapsedMs:elapsed(h.elapsedMs),newCount:Number(h.newCount)||0};});
       out.globalExamGroups[group]={cycle:x.cycle,results,cycleResults,history};
     }
+    if(!Array.isArray(s.examHistory||[]))fail();out.examHistory=(s.examHistory||[]).map(h=>{if(!obj(h))fail();const queue=ids(h.queue);fullQueue(queue);const answers=choices(h.answers);if(Object.keys(answers).some(id=>!queue.includes(id)))fail();return{queue,answers,submittedAt:Number(h.submittedAt)||0,round:Number(h.round)||1,elapsedMs:elapsed(h.elapsedMs)};});
     if(out.practice){const active=JSON.parse(out.practice.key);if(active[0]!==out.mode||(!globalKey(active)&&active[1]!=='all'&&active[1]!==out.bank)||(active[0]==='exam'&&globalKey(active)&&out.examKind!=='global')||(active[0]==='exam'&&keyGroup(active)&&keyGroup(active)!==out.examGroup))fail();}
     return out;
   }
