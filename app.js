@@ -37,6 +37,8 @@
   if(!banks.some(b=>b.id===state.bank))state.bank=lookup.get(state.practice?.current||state.current)?.bankId||banks[0].id;
   state.exam='all';state.type='all';if(!state.examBanks||typeof state.examBanks!=='object')state.examBanks={};if(!state.examKinds||typeof state.examKinds!=='object')state.examKinds={'12':state.examKind,'34':state.examKind};
   if(!state.globalExamGroups||typeof state.globalExamGroups!=='object')state.globalExamGroups={};for(const group of ['12','34'])if(!state.globalExamGroups[group]){const keep=items=>Object.fromEntries(Object.entries(items||{}).filter(([id])=>E.questionGroup(lookup.get(id)||{})===group));state.globalExamGroups[group]={cycle:state.globalExams.cycle||1,results:keep(state.globalExams.results),cycleResults:keep(state.globalExams.cycleResults),history:[]};}
+  // Consolidate saved submissions before a newer paper score can replace lastExams.
+  state.examHistory=savedExams().filter(h=>h.queue.length===165&&h.report.maxScore===100&&h.report.byType.judge?.count===40&&h.report.byType.single?.count===90&&h.report.byType.multiple?.count===35).map(h=>({queue:h.queue.slice(),answers:JSON.parse(JSON.stringify(h.answers||{})),submittedAt:h.submittedAt||0,round:h.round||1,elapsedMs:h.elapsedMs||0}));
  }
  function priorPractice(){
   const candidates=[state.practice,...Object.values(state.practices)].filter(Boolean);
@@ -227,9 +229,9 @@
  function savedExams(){
   const candidates=[...state.examHistory,...Object.values(state.globalExamGroups||{}).flatMap(g=>g.history||[]),...(state.globalExams?.history||[])];
   for(const [bankId,h]of Object.entries(state.lastExams)){const paper=all.filter(q=>q.bankId===bankId).sort((a,b)=>a.number-b.number);if(paper.length)candidates.push({...h,queue:paper.map(q=>q.id)});}
-  for(const p of [state.practice,...Object.values(state.practices)])if(p?.submitted&&p.queue?.length)candidates.push({...p,answers:p.examAnswers||{}});
+  for(const p of [state.practice,...Object.values(state.practices)])if(p?.submitted&&p.queue?.length&&p.examAnswers&&typeof p.examAnswers==='object')candidates.push({...p,answers:p.examAnswers||{}});
   const seen=new Set(),result=[];
-  for(const h of candidates){if(!Array.isArray(h.queue)||!h.queue.length)continue;const ids=h.queue.filter(id=>lookup.has(id));if(ids.length!==h.queue.length)continue;const key=JSON.stringify([h.submittedAt||0,h.round||1,ids]);if(seen.has(key))continue;seen.add(key);const report=E.scoreExam(ids.map(id=>lookup.get(id)),h.answers||{});result.push({...h,queue:ids,report,mistakes:ids.filter(id=>!report.results[id].correct)});}
+  for(const h of candidates){if(!Array.isArray(h.queue)||!h.queue.length||!h.answers||typeof h.answers!=='object'||Array.isArray(h.answers))continue;const ids=h.queue.filter(id=>lookup.has(id));if(ids.length!==h.queue.length)continue;const key=JSON.stringify([h.submittedAt||0,h.round||1,ids]);if(seen.has(key))continue;seen.add(key);const report=E.scoreExam(ids.map(id=>lookup.get(id)),h.answers||{});result.push({...h,queue:ids,report,mistakes:ids.filter(id=>!report.results[id].correct)});}
   return result.sort((a,b)=>(b.submittedAt||0)-(a.submittedAt||0));
  }
  function savedExamMistakes(group){
@@ -240,12 +242,18 @@
  function renderSavedExams(){
   for(const group of ['12','34']){const ids=savedExamMistakes(group),button=$('exam-wrong-'+group);button.textContent=`考试错题（${ids.length} 题待巩固）`;button.disabled=!ids.length;}
   const history=savedExams(),list=$('saved-exam-list');list.replaceChildren();
+  const scores=history.map(h=>h.report.score);$('score-history-summary').textContent=history.length?`已保存 ${history.length} 场考试 · 最近 ${scores[0]} 分 · 最高 ${Math.max(...scores)} 分`:'每次交卷后自动保留成绩；已有的考试记录会自动汇总到这里。';
   if(!history.length)list.append(create('p','muted','还没有已交卷的考试。交卷后会在这里保留成绩、用时和错题入口。'));
   for(const h of history.slice(0,examHistoryLimit)){
    const groups=[...new Set(h.queue.map(id=>E.questionGroup(lookup.get(id))))],bankIds=[...new Set(h.queue.map(id=>lookup.get(id).bankId))];
    const name=groups.length===1?groupTitle(groups[0]):'早期综合';const title=bankIds.length===1?banks.find(b=>b.id===bankIds[0])?.title:'随机组卷';
    const row=create('article','saved-exam-row');const stamp=h.submittedAt?new Date(h.submittedAt).toLocaleString('zh-CN',{hour12:false}):'早期保存记录';
    row.append(create('h4','',name+' · '+title),create('p','',`${stamp} · ${h.report.score} / ${h.report.maxScore} 分 · 用时 ${E.duration(h.elapsedMs)}`),create('p','',`本场答错 ${h.mistakes.length-h.report.unanswered} 题 · 未答 ${h.report.unanswered} 题`));
+   const details=create('details','saved-score-detail'),summary=create('summary','','查看成绩总结'),report=create('section','saved-score-report');
+   report.append(create('div','eyebrow','历史模拟考试 · 已交卷'),create('h2','',`${h.report.score} / ${h.report.maxScore} 分`),create('p','',`答对 ${h.report.correct} / ${h.queue.length} 题 · 已作答 ${h.report.answered} 题 · 未作答 ${h.report.unanswered} 题`),create('p','',`考试用时 ${E.duration(h.elapsedMs)}`));
+   for(const type of ['judge','single','multiple']){const t=h.report.byType[type];if(t)report.append(create('p','',`${TYPE[type]}：${t.score} / ${t.maxScore} 分（答对 ${t.correct} / ${t.count} 题，正确率 ${Math.round(t.correct/t.count*100)}%）`));}
+   const weak=Object.entries(h.report.byType).sort((a,b)=>a[1].score/a[1].maxScore-b[1].score/b[1].maxScore)[0];report.append(create('p','muted',!h.mistakes.length?'本场全部答对！':`本场建议重点巩固${TYPE[weak[0]]}；可通过下方按钮重新练习本场错题与未答题。`));
+   details.append(summary,report);row.append(details);
    if(h.mistakes.length){const button=create('button','secondary-button',`重练本场错题（${h.mistakes.length} 题，含未答）`);button.type='button';button.addEventListener('click',()=>startExamReview(h.mistakes));row.append(button);}else row.append(create('p','muted','本场全部答对。'));
    list.append(row);
   }
