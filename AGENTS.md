@@ -79,3 +79,9 @@ Current batch 5/6 evidence is in `reference/vip-import-5-6/`. Four papers and 66
 - Browse never grades new answers, clears mistakes, counts a completed practice round or runs an exam timer. Persist browse question/phase/answer snapshot across reload and backups.
 - A visible “重做错题” button switches explicitly to phase=retry, clears this review's new answers/drafts and starts from its first question with answers hidden. Preserve the original exam/history/score and all other practice sessions. Only retry submissions use normal wrong-round settlement. The bottom Next remains question navigation; on the last browse question it may start redo. Ordinary practice and pending mock exams keep prior answer-visibility rules.
 - Backup validation accepts only browse/retry phases and validates the stored canonical snapshot choices. Regression checks cover browse-first, original selections including unanswered, read-only side effects, reload/backup, explicit redo and retry resume.
+
+## Mock and redo choice shuffling (latest user requirement)
+
+- Shuffle single/multiple choices during pending mock exams (paper and group-random) and unanswered examReview retry questions. Judgment keeps original true/false order. Store canonical-key permutations in optionOrders so navigation, drafts, reload and backup restore keep an active question stable. Legacy answered mocks/drafts with no saved order retain their prior source order.
+- Submitted mocks, exam-mistake browse, and answered redo questions display source option order and source-letter feedback matching original explanations. Canonical selections/answers and strict source scoring never change. Normal random practice retains its existing shuffled feedback/mapping.
+- Each explicit bulk exam-mistake redo or single-question retry generates fresh choice permutations. Keep source questions, archived selections, scores and source reference answers unchanged.
